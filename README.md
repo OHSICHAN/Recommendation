@@ -1,16 +1,16 @@
 # SIGformer: Sign-aware Graph Transformer for Recommendation
 
 앤터테인먼트 추천시스템 기말 프로젝트
-Base Model : SIGformer : [arXiv link](https://arxiv.org/abs/2404.11982)
+> Base Model : [arXiv link](https://arxiv.org/abs/2404.11982)
 
-<!-- ## Environment
+## Environment
 - python==3.9.19
 - numpy==1.26.4
 - pandas==2.2.1
 - scipy==1.12.0
 - torch==2.2.2
 - pyg==2.5.2
-- torchsparsegradutils==0.1.2 -->
+- torchsparsegradutils==0.1.2
 
 ## Datasets
 
