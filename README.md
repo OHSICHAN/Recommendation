@@ -1,7 +1,5 @@
-# SIGformer: Sign-aware Graph Transformer for Recommendation
-
-앤터테인먼트 추천시스템 기말 프로젝트
-> Base Model : [arXiv link](https://arxiv.org/abs/2404.11982)
+# 앤터테인먼트 추천시스템 기말 프로젝트
+> Base Model > SIGformer: Sign-aware Graph Transformer for Recommendation
 
 ## Environment
 - python==3.9.19
