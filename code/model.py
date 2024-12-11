@@ -7,11 +7,11 @@ from torch import nn
 import torch.nn.functional as F
 from torch_geometric.utils import structured_negative_sampling
 
-
 class Attention(nn.Module):
     def __init__(self):
         super(Attention, self).__init__()
         self.lambda0 = nn.Parameter(torch.zeros(1))
+        self.lambda_clustering = nn.Parameter(torch.zeros(1))  # New parameter
         self.path_emb = nn.Embedding(2**(args.sample_hop+1)-2, 1)
         nn.init.zeros_(self.path_emb.weight)
         self.sqrt_dim = 1./torch.sqrt(torch.tensor(args.hidden_dim))
@@ -19,21 +19,33 @@ class Attention(nn.Module):
         self.my_parameters = [
             {'params': self.lambda0, 'weight_decay': 1e-2},
             {'params': self.path_emb.parameters()},
+            {'params': self.lambda_clustering, 'weight_decay': 1e-2},  # Include new parameter
         ]
 
-    def forward(self, q, k, v,  indices, eigs, path_type):
+    def forward(self, q, k, v,  indices, eigs, path_type, dataset, hops):
         ni, nx, ny, nz = [], [], [], []
-        for i, pt in zip(indices, path_type):
+        for i, pt, hop in zip(indices, path_type, hops):  # Modify this line
             x = torch.mul(q[i[0]], k[i[1]]).sum(dim=-1)*self.sqrt_dim
             nx.append(x)
+            # Add betweenness difference
+            betweenness_diff = (dataset.betweenness_centrality_pos[i[0]] - dataset.betweenness_centrality_neg[i[0]]) / hop.float()
+            # Add clustering coefficient difference
+            clustering_diff = (dataset.clustering_coeff_pos[i[0]] - dataset.clustering_coeff_neg[i[0]]) / hop.float()
+            # Add pagerank difference
+            pagerank_diff = (dataset.pagerank_pos[i[0]] - dataset.pagerank_neg[i[0]]) /  hop.float()
+            
             if 'eig' in args.model:
                 if args.eigs_dim == 0:
                     y = torch.zeros(i.shape[1]).to(parse.device)
                 else:
                     y = torch.mul(eigs[i[0]], eigs[i[1]]).sum(dim=-1)
+                #y = y + pagerank_diff
+                y = y + pagerank_diff
                 ny.append(y)
             if 'path' in args.model:
                 z = self.path_emb(pt).view(-1)
+                #z = z + torch.exp(self.lambda_clustering) * clustering_diff
+                z = z + torch.exp(self.lambda_clustering) * clustering_diff
                 nz.append(z)
             ni.append(i)
         i = torch.concat(ni, dim=-1)
@@ -47,22 +59,22 @@ class Attention(nn.Module):
         s = torch.stack(s, dim=1).mean(dim=1)
         return torchsparsegradutils.sparse_mm(torch.sparse_coo_tensor(i, s, torch.Size([q.shape[0], k.shape[0]])), v)
 
-
 class Encoder(nn.Module):
     def __init__(self):
         super(Encoder, self).__init__()
         self.self_attention = Attention()
         self.my_parameters = self.self_attention.my_parameters
 
-    def forward(self, x, indices, eigs, path_type):
+    def forward(self, x, indices, eigs, path_type, dataset, hops):
         y = F.layer_norm(x, normalized_shape=(args.hidden_dim,))
         y = self.self_attention(
             y, y, y,
             indices,
             eigs,
-            path_type)
+            path_type,
+            dataset,
+            hops)
         return y
-
 
 class Model(nn.Module):
     def __init__(self, dataset):
@@ -74,6 +86,7 @@ class Model(nn.Module):
         self.embedding_item = nn.Embedding(self.dataset.num_items, self.hidden_dim)
         nn.init.normal_(self.embedding_user.weight, std=0.1)
         nn.init.normal_(self.embedding_item.weight, std=0.1)
+
         self.my_parameters = [
             {'params': self.embedding_user.parameters()},
             {'params': self.embedding_item.parameters()},
@@ -93,17 +106,21 @@ class Model(nn.Module):
         items_emb = self.embedding_item.weight
         all_emb = torch.cat([users_emb, items_emb])
         embs = [all_emb]
+
         for i in range(self.n_layers):
-            indices, paths = self.dataset.sample()
+            indices, paths, hops = self.dataset.sample()
+            
             all_emb = self.layers[i](all_emb,
                                      indices,
                                      self.dataset.L_eigs,
-                                     paths)
+                                     paths,
+                                     self.dataset,
+                                     hops)
             embs.append(all_emb)
         embs = torch.stack(embs, dim=1)
         light_out = torch.mean(embs, dim=1)
         self._users, self._items = torch.split(light_out, [self.dataset.num_users, self.dataset.num_items])
-
+    
     def evaluate(self, test_pos_unique_users, test_pos_list, test_neg_list):
         self.eval()
         if self._users is None:

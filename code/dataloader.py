@@ -1,3 +1,5 @@
+import os
+import pickle
 import torch
 from torch.utils.data import Dataset
 import pandas as pd
@@ -5,11 +7,22 @@ import parse
 from parse import args
 import scipy.sparse as sp
 import torch.nn.functional as F
-
+import networkx as nx
 
 class MyDataset(Dataset):
     def __init__(self, train_file, valid_file, test_file, device):
         self.device = device
+        self.cache_dir = "./cache"
+        os.makedirs(self.cache_dir, exist_ok=True)
+        
+        # 데이터 로딩
+        self.load_data(train_file, valid_file, test_file)
+        
+        # 그래프 지표 계산 (캐시 로딩 포함)
+        self.load_or_compute_graph_metrics()
+
+    def load_data(self, train_file, valid_file, test_file):
+
         # train dataset
         train_data = pd.read_table(train_file, header=None, sep=' ')
         train_pos_data = train_data[train_data[2] >= args.offset]
@@ -89,6 +102,85 @@ class MyDataset(Dataset):
         self._L_pos = None
         self._L_neg = None
         self._L_eigs = None
+    
+    def load_or_compute_graph_metrics(self):
+        cache_file = os.path.join(self.cache_dir, f"{parse.args.data}_metrics.pkl")
+        
+        if os.path.exists(cache_file):
+            with open(cache_file, "rb") as f:
+                metrics = pickle.load(f)
+                self.betweenness_centrality_pos = metrics['betweenness_pos']
+                self.betweenness_centrality_neg = metrics['betweenness_neg']
+                self.clustering_coeff_pos = metrics['clustering_pos']
+                self.clustering_coeff_neg = metrics['clustering_neg']
+                self.pagerank_pos = metrics['pagerank_pos']
+                self.pagerank_neg = metrics['pagerank_neg']
+            print(f"Loaded cached metrics from {cache_file}")
+        else:
+            print("Computing graph metrics...")
+            self.compute_graph_metrics()
+            metrics = {
+                'betweenness_pos': self.betweenness_centrality_pos,
+                'betweenness_neg': self.betweenness_centrality_neg,
+                'clustering_pos': self.clustering_coeff_pos,
+                'clustering_neg': self.clustering_coeff_neg,
+                'pagerank_pos': self.pagerank_pos,
+                'pagerank_neg': self.pagerank_neg,
+            }
+            with open(cache_file, "wb") as f:
+                pickle.dump(metrics, f)
+            print(f"Saved computed metrics to {cache_file}")
+
+    def compute_graph_metrics(self):
+        # 그래프 생성
+        self.pos_graph = nx.Graph()
+        self.neg_graph = nx.Graph()
+
+        # 엣지 추가 (Positive)
+        self.pos_graph.add_edges_from(
+            zip(
+                self.train_pos_user.cpu().numpy(),
+                (self.train_pos_item + self.num_users).cpu().numpy(),
+            )
+        )
+
+        # 엣지 추가 (Negative)
+        self.neg_graph.add_edges_from(
+            zip(
+                self.train_neg_user.cpu().numpy(),
+                (self.train_neg_item + self.num_users).cpu().numpy(),
+            )
+        )
+        # Betweenness Centrality
+        self.betweenness_centrality_pos = torch.zeros(self.num_users + self.num_items, device=self.device)
+        self.betweenness_centrality_neg = torch.zeros(self.num_users + self.num_items, device=self.device)
+
+        for node, value in nx.betweenness_centrality(self.pos_graph).items():
+            self.betweenness_centrality_pos[node] = value
+
+        for node, value in nx.betweenness_centrality(self.neg_graph).items():
+            self.betweenness_centrality_neg[node] = value
+
+        # Clustering Coefficient
+        self.clustering_coeff_pos = torch.zeros(self.num_users + self.num_items, device=self.device)
+        self.clustering_coeff_neg = torch.zeros(self.num_users + self.num_items, device=self.device)
+
+        for node, value in nx.clustering(self.pos_graph).items():
+            self.clustering_coeff_pos[node] = value
+
+        for node, value in nx.clustering(self.neg_graph).items():
+            self.clustering_coeff_neg[node] = value
+
+        # PageRank
+        self.pagerank_pos = torch.zeros(self.num_users + self.num_items, device=self.device)
+        self.pagerank_neg = torch.zeros(self.num_users + self.num_items, device=self.device)
+
+        for node, value in nx.pagerank(self.pos_graph).items():
+            self.pagerank_pos[node] = value
+
+        for node, value in nx.pagerank(self.neg_graph).items():
+            self.pagerank_neg[node] = value
+
 
     @ property
     def train_pos_list(self):
@@ -255,6 +347,7 @@ class MyDataset(Dataset):
             self._values = torch.ones(self._indices.shape[1]).to(
                 parse.device)*d[self._indices[0]]*d[self._indices[1]]
         res_X, res_Y = [], []
+        res_hops = []  # Add this line
         record_X = []
         X,  Y,  = self._indices,  torch.ones_like(self._paths).long()*2+self._paths
         loop_indices = torch.zeros_like(Y).bool()
@@ -265,10 +358,11 @@ class MyDataset(Dataset):
             record_X.append(X)
             res_X.append(X[:, ~loop_indices])
             res_Y.append(Y[~loop_indices]-2)
+            res_hops.append(torch.ones_like(Y[~loop_indices]) * (hop + 1))  # Add this line
             next_indices = self._counts_sum[X[1]]-(torch.rand(X.shape[1]).to(parse.device)*self._counts[X[1]]).long()-1
             X = torch.stack([X[0], self._indices[1, next_indices]], dim=0)
             Y = Y*2+self._paths[next_indices]
-        return res_X, res_Y
+        return res_X, res_Y, res_hops  # Modify this line
 
 
 dataset = MyDataset(parse.train_file, parse.valid_file,
