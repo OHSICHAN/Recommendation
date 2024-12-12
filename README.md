@@ -32,7 +32,6 @@
   python -u code/main.py --data=amazon-music --offset=4 --alpha=0.0 --beta=1 --sample_hop=6
   ```
 * Epinions
->>>>>>>
   ```bash
   python -u code/main.py --data=epinions --offset=4 --alpha=0.4 --beta=1 --sample_hop=3
   ```
