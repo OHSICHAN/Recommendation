@@ -40,12 +40,13 @@ class Attention(nn.Module):
                 else:
                     y = torch.mul(eigs[i[0]], eigs[i[1]]).sum(dim=-1)
                 #y = y + pagerank_diff
-                y = y + pagerank_diff
+                #y = y + pagerank_diff
+                y = y + betweenness_diff
                 ny.append(y)
             if 'path' in args.model:
                 z = self.path_emb(pt).view(-1)
+                z = z + betweenness_diff
                 #z = z + torch.exp(self.lambda_clustering) * clustering_diff
-                z = z + torch.exp(self.lambda_clustering) * clustering_diff
                 nz.append(z)
             ni.append(i)
         i = torch.concat(ni, dim=-1)
