@@ -29,15 +29,15 @@
   ``` -->
 * Amazon-Music
   ```bash
-  python -u code/main.py --data=amazon-music --offset=4 --alpha=0.0 --beta=1 --sample_hop=6
+  python -u code/main.py --data=amazon-music --offset=4 --alpha=0.0 --beta=1 --sample_hop=12
   ```
 * Epinions
   ```bash
-  python -u code/main.py --data=epinions --offset=4 --alpha=0.4 --beta=1 --sample_hop=3
+  python -u code/main.py --data=epinions --offset=4 --alpha=0.4 --beta=1 --sample_hop=12
   ```
 * KuaiRec
   ``` bash
-  python -u code/main.py --data=KuaiRec --offset=1 --alpha=-0.8 --beta=-0.2 --sample_hop=6
+  python -u code/main.py --data=KuaiRec --offset=1 --alpha=-0.8 --beta=-0.2 --sample_hop=12
   ```
 <!-- * KuaiRand
   ```bash

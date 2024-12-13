@@ -11,7 +11,9 @@ class Attention(nn.Module):
     def __init__(self):
         super(Attention, self).__init__()
         self.lambda0 = nn.Parameter(torch.zeros(1))
+        self.lambda_betweenness = nn.Parameter(torch.zeros(1))  # New parameter
         self.lambda_clustering = nn.Parameter(torch.zeros(1))  # New parameter
+        self.lambda_pagerank = nn.Parameter(torch.zeros(1))  # New parameter
         self.path_emb = nn.Embedding(2**(args.sample_hop+1)-2, 1)
         nn.init.zeros_(self.path_emb.weight)
         self.sqrt_dim = 1./torch.sqrt(torch.tensor(args.hidden_dim))
@@ -19,7 +21,9 @@ class Attention(nn.Module):
         self.my_parameters = [
             {'params': self.lambda0, 'weight_decay': 1e-2},
             {'params': self.path_emb.parameters()},
-            {'params': self.lambda_clustering, 'weight_decay': 1e-2},  # Include new parameter
+            {'params': self.lambda_betweenness, 'weight_decay': 1e-3},  # Include new parameter
+            {'params': self.lambda_clustering, 'weight_decay': 1e-3},
+            {'params': self.lambda_pagerank, 'weight_decay': 1e-3},
         ]
 
     def forward(self, q, k, v,  indices, eigs, path_type, dataset, hops):
@@ -28,25 +32,27 @@ class Attention(nn.Module):
             x = torch.mul(q[i[0]], k[i[1]]).sum(dim=-1)*self.sqrt_dim
             nx.append(x)
             # Add betweenness difference
-            betweenness_diff = (dataset.betweenness_centrality_pos[i[0]] - dataset.betweenness_centrality_neg[i[0]]) / hop.float()
+            #betweenness_diff = (dataset.betweenness_centrality_pos[i[0]] - dataset.betweenness_centrality_neg[i[0]]) / hop.float()
+            betweenness_diff = (dataset.betweenness_centrality_pos[i[0]] - dataset.betweenness_centrality_neg[i[0]])
             # Add clustering coefficient difference
-            clustering_diff = (dataset.clustering_coeff_pos[i[0]] - dataset.clustering_coeff_neg[i[0]]) / hop.float()
+            clustering_diff = (dataset.clustering_coeff_pos[i[0]] - dataset.clustering_coeff_neg[i[0]])
             # Add pagerank difference
-            pagerank_diff = (dataset.pagerank_pos[i[0]] - dataset.pagerank_neg[i[0]]) /  hop.float()
+            pagerank_diff = (dataset.pagerank_pos[i[0]] - dataset.pagerank_neg[i[0]])
             
             if 'eig' in args.model:
                 if args.eigs_dim == 0:
                     y = torch.zeros(i.shape[1]).to(parse.device)
                 else:
                     y = torch.mul(eigs[i[0]], eigs[i[1]]).sum(dim=-1)
-                #y = y + pagerank_diff
-                #y = y + pagerank_diff
-                y = y + betweenness_diff
+                y = y + torch.exp(self.lambda_betweenness) * betweenness_diff
+                y = y + torch.exp(self.lambda_clustering) * clustering_diff
+                y = y + torch.exp(self.lambda_pagerank) * pagerank_diff
                 ny.append(y)
             if 'path' in args.model:
                 z = self.path_emb(pt).view(-1)
-                z = z + betweenness_diff
-                #z = z + torch.exp(self.lambda_clustering) * clustering_diff
+                z = z + torch.exp(self.lambda_betweenness) * betweenness_diff
+                z = z + torch.exp(self.lambda_clustering) * clustering_diff 
+                z = z + torch.exp(self.lambda_pagerank) * pagerank_diff
                 nz.append(z)
             ni.append(i)
         i = torch.concat(ni, dim=-1)

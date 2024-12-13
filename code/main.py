@@ -31,7 +31,7 @@ def valid(epoch):
 all_hop_results = []
 ### MODIFICATION END ###
 
-for hop_val in range(1, 12):
+for hop_val in range(1, args.sample_hop):
     print('===========================')
     print(f'Run for sample_hop = {hop_val}')
     print('===========================')
